@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "bedwarsresourcehud",
+  "version": "${version}",
+  "name": "BedwarsResourceHud",
+  "description": "Displays Bedwars resource counts (inventory, ender chest, total) in a repositionable HUD.",
+  "authors": [],
+  "contact": {},
+  "license": "GPL-3.0",
+  "icon": "assets/bedwarsresourcehud/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "me.alecjensen.bedwarsresourcehud.client.BedwarsresourcehudClient"
+    ],
+    "modmenu": [
+      "me.alecjensen.bedwarsresourcehud.client.config.ModMenuIntegration"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}",
+    "java": ">=25"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}
