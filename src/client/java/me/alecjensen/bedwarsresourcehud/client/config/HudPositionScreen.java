@@ -25,7 +25,7 @@ public class HudPositionScreen extends Screen
     @Override
     protected void init()
     {
-        this.addRenderableWidget(Button.builder(Component.literal("Done"), button -> this.onClose())
+        this.addRenderableWidget(Button.builder(Component.literal("Save & Back"), button -> this.onClose())
                 .bounds(this.width / 2 - 50, this.height - 30, 100, 20)
                 .build());
     }
@@ -39,7 +39,7 @@ public class HudPositionScreen extends Screen
 
         // The live HUD has no background (fully transparent), so draw a faint outline here only,
         // purely so the panel bounds are visible while editing its position.
-        graphics.outline(config.x - 2, config.y - 2, config.x + HudRenderer.getPanelWidth() + 2, config.y + HudRenderer.getPanelHeight() + 2, 0x80FFFFFF);
+        graphics.outline(config.x - 1, config.y - 1, config.x + HudRenderer.getPanelWidth() + 1, config.y + HudRenderer.getPanelHeight() + 1, 0x80FFFFFF);
         HudRenderer.render(graphics, config.x, config.y);
     }
 

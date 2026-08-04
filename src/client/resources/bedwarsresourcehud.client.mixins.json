@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "me.alecjensen.bedwarsresourcehud.mixin.client",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "ChannelMaxGainMixin",
+    "ClientLevelAccessor",
+    "LivingEntityRendererMixin",
+    "MinecraftMixin",
+    "SoundEngineVolumeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
