@@ -9,6 +9,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,19 +31,35 @@ import java.util.UUID;
  *
  * Deliberately keeps using the bed's location even after the bed itself is broken - someone closing
  * in on your base to finish you off is if anything more worth knowing about once the bed's gone.
+ *
+ * Only runs between a confirmed match start (see onMatchStart) and the next level change - without
+ * that gate, this would also start scanning the moment you're anywhere Bed Wars-related, including
+ * the Bed Wars portal/practice lobby (its own scoreboard sidebar says "BED WARS" too, same as an
+ * actual arena), latch onto some bed-shaped prop there, and blast the alert sound at everyone who's
+ * just normal foot traffic walking near it. The sidebar title alone can't tell those apart - only
+ * the literal "match has begun" system message can.
  */
 public final class BedAlarmTracker
 {
     private static final Logger LOGGER = LoggerFactory.getLogger("BedwarsResourceHud/BedAlarmTracker");
 
     private static final int BED_SCAN_INTERVAL_TICKS = 40;
-    private static final int BED_SCAN_HORIZONTAL_RADIUS = 20;
-    private static final int BED_SCAN_VERTICAL_RADIUS = 6;
+    private static final int BED_SCAN_HORIZONTAL_RADIUS = 24;
+    // Some maps put the spawn pad noticeably above or below the actual bed platform - 6 was too
+    // tight and missed those entirely no matter how long it kept retrying at the same spot.
+    private static final int BED_SCAN_VERTICAL_RADIUS = 16;
     private static final int BED_SCAN_MAX_ATTEMPTS = 20;
 
     private static BlockPos bedPos;
+    // Captured once, on the first scan attempt, and reused for every retry - re-centering each
+    // retry on the player's live position instead meant a slow chunk load on the very first
+    // attempt (right as you spawn, before nearby chunks are guaranteed to be in) combined with
+    // just walking off toward the shop/generator would make later retries search around wherever
+    // you'd wandered to instead of back where your bed actually is, and fail outright.
+    private static BlockPos scanAnchor;
     private static int bedScanAttempts;
     private static int tickCounter;
+    private static boolean matchActive;
     private static Set<UUID> playersInside = Set.of();
     // Per-intruder, not global: a genuinely new threat (or the same one back after a real absence)
     // should still alert immediately even if someone else just tripped the alarm a second ago.
@@ -56,6 +74,17 @@ public final class BedAlarmTracker
         return bedPos;
     }
 
+    /**
+     * Called by ChatDiagnosticsLogger the moment it sees Hypixel's "Protect your bed and destroy
+     * the enemy beds." system message - the one text that's guaranteed to mean an actual match
+     * just began, as opposed to merely standing somewhere Bed Wars-related.
+     */
+    public static void onMatchStart()
+    {
+        LOGGER.info("Bed Wars match start detected - arming bed alarm");
+        matchActive = true;
+    }
+
     public static void reset()
     {
         if (bedPos != null || bedScanAttempts > 0)
@@ -63,7 +92,9 @@ public final class BedAlarmTracker
             LOGGER.info("Resetting bed alarm tracker (bed was at {})", bedPos);
         }
         bedPos = null;
+        scanAnchor = null;
         bedScanAttempts = 0;
+        matchActive = false;
         playersInside = Set.of();
         lastAlertTick.clear();
     }
@@ -72,7 +103,7 @@ public final class BedAlarmTracker
     {
         ClientLevel level = client.level;
         Player self = client.player;
-        if (level == null || self == null)
+        if (level == null || self == null || !matchActive)
         {
             return;
         }
@@ -86,8 +117,23 @@ public final class BedAlarmTracker
                 return;
             }
 
+            if (scanAnchor == null)
+            {
+                scanAnchor = self.blockPosition();
+                LOGGER.info("Anchoring bed scan at {}", scanAnchor);
+            }
+
             bedScanAttempts++;
-            BlockPos found = findNearestBed(level, self.blockPosition());
+            BlockPos livePos = self.blockPosition();
+            // Try the original spawn anchor first (covers a bed that was there all along but got
+            // missed early on by a chunk that hadn't loaded yet), then fall back to wherever the
+            // player actually is right now (covers a bed that's simply too far from spawn to be
+            // in range of the anchor at all, on maps where you have to walk toward your base).
+            BlockPos found = findNearestBed(level, scanAnchor);
+            if (found == null && !livePos.equals(scanAnchor))
+            {
+                found = findNearestBed(level, livePos);
+            }
             if (found != null)
             {
                 bedPos = found;
@@ -95,8 +141,8 @@ public final class BedAlarmTracker
             }
             else if (bedScanAttempts >= BED_SCAN_MAX_ATTEMPTS)
             {
-                LOGGER.warn("Failed to locate own bed after {} attempts near {} - bed alarm disabled for this match",
-                        bedScanAttempts, self.blockPosition());
+                LOGGER.warn("Failed to locate own bed after {} attempts (anchor {}, last position {}) - bed alarm disabled for this match",
+                        bedScanAttempts, scanAnchor, livePos);
             }
             return;
         }
@@ -128,6 +174,17 @@ public final class BedAlarmTracker
                         nearest = pos;
                     }
                 }
+            }
+        }
+
+        // Canonicalize to the FOOT half so this lines up with AllBedsTracker's own bed keys
+        // (used for the "Your Bed" label) regardless of which half happened to be nearest.
+        if (nearest != null)
+        {
+            BlockState state = level.getBlockState(nearest);
+            if (state.getValue(BedBlock.PART) == BedPart.HEAD)
+            {
+                nearest = nearest.relative(BedBlock.getConnectedDirection(state));
             }
         }
         return nearest;

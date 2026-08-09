@@ -17,18 +17,25 @@ import java.util.regex.Pattern;
  * research aid for finding a text-based signal that could confirm/speed up generator detection
  * instead of waiting on repeated item-pile growth.
  *
- * Also reacts to one specific, confirmed message shape: "X purchased Iron/Gold Forge" - that
+ * Also reacts to two specific, confirmed message shapes. "X purchased Iron/Gold Forge" - that
  * upgrade speeds up the purchasing team's own iron/gold generator, which makes the interval
  * GeneratorTracker learned before the purchase wrong (too slow) until it happens to observe a
  * fresh spawn. Rather than wait that out, or hardcode a guessed speed-up percentage (which would
  * likely be wrong for this specific server anyway), the affected generator's interval is just
  * invalidated the moment the purchase is seen, so the countdown honestly shows "unknown" for one
  * cycle instead of a confidently wrong number, and re-learns the new, faster interval immediately.
+ *
+ * And "Protect your bed and destroy the enemy beds." - the fixed tip line Hypixel sends in the
+ * banner right as a match actually begins. Unlike "is this server/lobby Bed Wars-related at all"
+ * (true for the portal/practice lobby too, not just real arenas), this message is only ever sent
+ * once an actual match has started, so it's what arms BedAlarmTracker instead of it running
+ * everywhere Bed Wars-flavored.
  */
 public final class ChatDiagnosticsLogger
 {
     private static final Logger LOGGER = LoggerFactory.getLogger("BedwarsResourceHud/ChatDiagnostics");
     private static final Pattern FORGE_PURCHASE_PATTERN = Pattern.compile("^(.+?) purchased (Iron|Gold) Forge$");
+    private static final String MATCH_START_TIP = "Protect your bed and destroy the enemy beds.";
 
     private ChatDiagnosticsLogger()
     {
@@ -43,7 +50,16 @@ public final class ChatDiagnosticsLogger
         {
             LOGGER.info("game (overlay={}): {}", overlay, message.getString());
             onForgePurchase(message);
+            onMatchStart(message);
         });
+    }
+
+    private static void onMatchStart(Component message)
+    {
+        if (message.getString().contains(MATCH_START_TIP))
+        {
+            BedAlarmTracker.onMatchStart();
+        }
     }
 
     private static void onForgePurchase(Component message)

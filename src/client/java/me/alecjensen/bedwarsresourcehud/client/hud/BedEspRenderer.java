@@ -2,14 +2,21 @@ package me.alecjensen.bedwarsresourcehud.client.hud;
 
 import me.alecjensen.bedwarsresourcehud.client.config.HudConfig;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.gizmos.GizmoStyle;
+import net.minecraft.gizmos.Gizmos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.DyeColor;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector4f;
@@ -17,16 +24,17 @@ import org.joml.Vector4f;
 import java.util.Map;
 
 /**
- * A dot and label over every bed discovered anywhere on the map (see AllBedsTracker), always
- * visible - straight screen-space projection like the generator waypoints, so it renders through
- * walls and terrain unconditionally. Unlike the generator waypoints, this deliberately does NOT
- * check for player occlusion either - this is meant to be unconditional ESP, not "visible unless
- * someone's physically standing in the way".
+ * A real world-space box outline around every bed discovered anywhere on the map (see
+ * AllBedsTracker), drawn via the vanilla Gizmos API and marked always-on-top so it still renders
+ * through walls and terrain unconditionally, the same as the old screen-space dot did - this is
+ * meant to be unconditional ESP, not "visible unless something's physically in the way". A small
+ * floating label (whose bed, and how far away) is drawn separately in screen space since Gizmos
+ * text placement isn't as controllable as a plain HUD element.
  */
 public final class BedEspRenderer
 {
     private static final Identifier ELEMENT_ID = Identifier.fromNamespaceAndPath("bedwarsresourcehud", "bed_esp");
-    private static final int DOT_RADIUS = 3;
+    private static final float OUTLINE_WIDTH = 2.0f;
     private static final int LABEL_Y_OFFSET = 14;
 
     private BedEspRenderer()
@@ -35,6 +43,16 @@ public final class BedEspRenderer
 
     public static void register()
     {
+        LevelRenderEvents.BEFORE_GIZMOS.register(context ->
+        {
+            Minecraft client = Minecraft.getInstance();
+            if (client.player == null || client.level == null || !HudConfig.get().showBedEsp)
+            {
+                return;
+            }
+            renderOutlines(client);
+        });
+
         HudElementRegistry.addLast(ELEMENT_ID, (graphics, tickCounter) ->
         {
             Minecraft client = Minecraft.getInstance();
@@ -42,11 +60,25 @@ public final class BedEspRenderer
             {
                 return;
             }
-            render(client, graphics);
+            renderLabels(client, graphics);
         });
     }
 
-    private static void render(Minecraft client, GuiGraphicsExtractor graphics)
+    private static void renderOutlines(Minecraft client)
+    {
+        for (Map.Entry<BlockPos, DyeColor> entry : AllBedsTracker.getBeds().entrySet())
+        {
+            AABB aabb = bedAabb(client, entry.getKey());
+            if (aabb == null)
+            {
+                continue;
+            }
+            int color = 0xFF000000 | entry.getValue().getTextureDiffuseColor();
+            Gizmos.cuboid(aabb, GizmoStyle.stroke(color, OUTLINE_WIDTH)).setAlwaysOnTop();
+        }
+    }
+
+    private static void renderLabels(Minecraft client, GuiGraphicsExtractor graphics)
     {
         Camera camera = client.gameRenderer.mainCamera();
         if (!camera.isInitialized())
@@ -69,8 +101,8 @@ public final class BedEspRenderer
 
         for (Map.Entry<BlockPos, DyeColor> entry : beds.entrySet())
         {
-            BlockPos pos = entry.getKey();
-            Vec3 target = Vec3.atCenterOf(pos);
+            BlockPos footPos = entry.getKey();
+            Vec3 target = Vec3.atCenterOf(footPos);
             double relX = target.x - cameraPos.x;
             double relY = target.y - cameraPos.y;
             double relZ = target.z - cameraPos.z;
@@ -96,14 +128,25 @@ public final class BedEspRenderer
 
             DyeColor dyeColor = entry.getValue();
             int color = 0xFF000000 | dyeColor.getTextureDiffuseColor();
-            graphics.fill(screenX - DOT_RADIUS, screenY - DOT_RADIUS, screenX + DOT_RADIUS, screenY + DOT_RADIUS, color);
-
-            boolean isOwnBed = pos.equals(ownBed);
+            boolean isOwnBed = footPos.equals(ownBed);
             int distance = (int) Math.round(Math.sqrt(distanceSq));
             String label = (isOwnBed ? "Your Bed" : capitalize(dyeColor.getSerializedName()) + " Bed") + " (" + distance + "m)";
             int textWidth = font.width(label);
             graphics.text(font, Component.literal(label), screenX - textWidth / 2, screenY - LABEL_Y_OFFSET - font.lineHeight, color, true);
         }
+    }
+
+    /** The full two-block AABB spanning both halves of the bed at footPos, or null if it's no longer a valid bed. */
+    private static AABB bedAabb(Minecraft client, BlockPos footPos)
+    {
+        BlockState state = client.level.getBlockState(footPos);
+        if (!(state.getBlock() instanceof BedBlock))
+        {
+            return null;
+        }
+        Direction toOtherHalf = BedBlock.getConnectedDirection(state);
+        BlockPos headPos = footPos.relative(toOtherHalf);
+        return AABB.encapsulatingFullBlocks(footPos, headPos);
     }
 
     private static String capitalize(String s)

@@ -1,5 +1,6 @@
 package me.alecjensen.bedwarsresourcehud.client;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
@@ -17,7 +18,10 @@ public final class VersionChecker
 {
     private static final Logger LOGGER = LoggerFactory.getLogger("BedwarsResourceHud");
     private static final String MOD_ID = "bedwarsresourcehud";
-    private static final String LATEST_RELEASE_API = "https://api.github.com/repos/alec-jensen/bedwarsresourcehud/releases/latest";
+    // Deliberately the release *list* (newest first), not GitHub's /releases/latest - that
+    // endpoint only ever returns the newest non-prerelease, so it 404s outright as long as every
+    // published release stays marked prerelease, which is how this project publishes right now.
+    private static final String RELEASES_API = "https://api.github.com/repos/alec-jensen/bedwarsresourcehud/releases?per_page=1";
 
     public record UpdateInfo(String latestVersion, String downloadUrl)
     {
@@ -45,7 +49,7 @@ public final class VersionChecker
                     .connectTimeout(Duration.ofSeconds(5))
                     .build();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(LATEST_RELEASE_API))
+                    .uri(URI.create(RELEASES_API))
                     .header("Accept", "application/vnd.github+json")
                     .timeout(Duration.ofSeconds(5))
                     .GET()
@@ -58,7 +62,14 @@ public final class VersionChecker
                 return;
             }
 
-            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+            JsonArray releases = JsonParser.parseString(response.body()).getAsJsonArray();
+            if (releases.isEmpty())
+            {
+                LOGGER.info("Version check: no releases published yet");
+                return;
+            }
+
+            JsonObject json = releases.get(0).getAsJsonObject();
             String tag = json.get("tag_name").getAsString();
             String downloadUrl = json.get("html_url").getAsString();
             String latest = tag.startsWith("v") ? tag.substring(1) : tag;

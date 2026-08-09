@@ -6,6 +6,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -16,6 +18,10 @@ import java.util.Map;
  * currently are, every cycle, so beds get discovered gradually as you walk around the map rather
  * than needing to already know where they all are on day one. Once found, a bed stays tracked
  * (and keeps its color) until it's re-checked and found to no longer be a bed block - i.e. broken.
+ *
+ * A bed occupies two blocks (head + foot); only the FOOT half is ever stored here, so each
+ * physical bed contributes exactly one map entry instead of two. Consumers that need the other
+ * half's position derive it from BedBlock#getConnectedDirection.
  */
 public final class AllBedsTracker
 {
@@ -57,7 +63,7 @@ public final class AllBedsTracker
         }
 
         Map<BlockPos, DyeColor> updated = new HashMap<>(beds);
-        updated.keySet().removeIf(pos -> !(level.getBlockState(pos).getBlock() instanceof BedBlock));
+        updated.keySet().removeIf(pos -> !isBedFoot(level.getBlockState(pos)));
 
         BlockPos center = self.blockPosition();
         for (int dx = -SCAN_HORIZONTAL_RADIUS; dx <= SCAN_HORIZONTAL_RADIUS; dx++)
@@ -71,7 +77,8 @@ public final class AllBedsTracker
                     {
                         continue;
                     }
-                    if (level.getBlockState(pos).getBlock() instanceof BedBlock bed)
+                    BlockState state = level.getBlockState(pos);
+                    if (isBedFoot(state) && state.getBlock() instanceof BedBlock bed)
                     {
                         updated.put(pos.immutable(), bed.getColor());
                     }
@@ -80,5 +87,10 @@ public final class AllBedsTracker
         }
 
         beds = updated;
+    }
+
+    private static boolean isBedFoot(BlockState state)
+    {
+        return state.getBlock() instanceof BedBlock && state.getValue(BedBlock.PART) == BedPart.FOOT;
     }
 }
