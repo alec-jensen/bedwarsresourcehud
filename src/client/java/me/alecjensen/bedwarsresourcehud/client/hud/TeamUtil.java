@@ -1,6 +1,7 @@
 package me.alecjensen.bedwarsresourcehud.client.hud;
 
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 
 /**
  * Entity#isAlliedTo compares literal scoreboard Team OBJECT equality - it's true only if both
@@ -14,6 +15,11 @@ import net.minecraft.world.entity.Entity;
  * Team COLOR turned out to still be consistent and correct (it's what the radar markers already
  * use), so "same side" is determined by comparing team color instead of team object identity -
  * that holds regardless of whether each player got their own uniquely-named team under the hood.
+ * It's still not bulletproof, though: it's live entity/scoreboard state, so it resyncs from
+ * scratch (briefly reading as no-color/mismatched) whenever a player's entity gets re-added -
+ * which reconnecting mid-match does, and Hypixel party members really do disconnect and rejoin
+ * mid-match. PartyTracker is checked as a fallback specifically because it isn't live state at
+ * all - a party member's name doesn't change no matter how their connection or entity does.
  */
 public final class TeamUtil
 {
@@ -23,7 +29,11 @@ public final class TeamUtil
 
     public static boolean isTeammate(Entity self, Entity other)
     {
-        return self == other || self.getTeamColor() == other.getTeamColor();
+        if (self == other || self.getTeamColor() == other.getTeamColor())
+        {
+            return true;
+        }
+        return other instanceof Player player && PartyTracker.isMember(player.getGameProfile().name());
     }
 
     /**

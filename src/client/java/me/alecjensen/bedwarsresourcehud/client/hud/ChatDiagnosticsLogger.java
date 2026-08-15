@@ -30,12 +30,26 @@ import java.util.regex.Pattern;
  * (true for the portal/practice lobby too, not just real arenas), this message is only ever sent
  * once an actual match has started, so it's what arms BedAlarmTracker instead of it running
  * everywhere Bed Wars-flavored.
+ *
+ * Also feeds PartyTracker from Hypixel's own party join/leave messages - see that class for why
+ * party membership matters here at all.
  */
 public final class ChatDiagnosticsLogger
 {
     private static final Logger LOGGER = LoggerFactory.getLogger("BedwarsResourceHud/ChatDiagnostics");
     private static final Pattern FORGE_PURCHASE_PATTERN = Pattern.compile("^(.+?) purchased (Iron|Gold) Forge$");
     private static final String MATCH_START_TIP = "Protect your bed and destroy the enemy beds.";
+
+    private static final Pattern YOU_JOINED_PARTY_PATTERN = Pattern.compile("^You have joined (.+?)'s party!$");
+    // Deliberately NOT "X has joined (n/16)!" - that one turned out to be a Bedwars lobby
+    // population broadcast (n/16 = lobby slot count), not a party message. It fires for every
+    // stranger who joins the same public lobby, party or not, and would have quietly marked real
+    // enemies as guaranteed allies.
+    private static final Pattern PLAYER_JOINED_PARTY_PATTERN = Pattern.compile("^(.+?) joined the party\\.?$");
+    private static final Pattern PLAYER_LEFT_PARTY_PATTERN = Pattern.compile("^(.+?) has left the party\\.?$");
+    private static final Pattern PLAYER_REMOVED_FROM_PARTY_PATTERN = Pattern.compile("^(.+?) has been removed from the party\\.?$");
+    private static final Pattern YOU_LEFT_PARTY_PATTERN = Pattern.compile("^You (?:have )?left the party\\.?$");
+    private static final Pattern PARTY_DISBANDED_PATTERN = Pattern.compile("^The party (?:was disbanded|has been disbanded).*$");
 
     private ChatDiagnosticsLogger()
     {
@@ -51,6 +65,7 @@ public final class ChatDiagnosticsLogger
             LOGGER.info("game (overlay={}): {}", overlay, message.getString());
             onForgePurchase(message);
             onMatchStart(message);
+            onPartyMessage(message);
         });
     }
 
@@ -59,6 +74,44 @@ public final class ChatDiagnosticsLogger
         if (message.getString().contains(MATCH_START_TIP))
         {
             BedAlarmTracker.onMatchStart();
+        }
+    }
+
+    private static void onPartyMessage(Component message)
+    {
+        String text = message.getString();
+
+        Matcher youJoined = YOU_JOINED_PARTY_PATTERN.matcher(text);
+        if (youJoined.matches())
+        {
+            PartyTracker.add(youJoined.group(1));
+            return;
+        }
+
+        Matcher playerJoined = PLAYER_JOINED_PARTY_PATTERN.matcher(text);
+        if (playerJoined.matches())
+        {
+            PartyTracker.add(playerJoined.group(1));
+            return;
+        }
+
+        Matcher playerLeft = PLAYER_LEFT_PARTY_PATTERN.matcher(text);
+        if (playerLeft.matches())
+        {
+            PartyTracker.remove(playerLeft.group(1));
+            return;
+        }
+
+        Matcher playerRemoved = PLAYER_REMOVED_FROM_PARTY_PATTERN.matcher(text);
+        if (playerRemoved.matches())
+        {
+            PartyTracker.remove(playerRemoved.group(1));
+            return;
+        }
+
+        if (YOU_LEFT_PARTY_PATTERN.matcher(text).matches() || PARTY_DISBANDED_PATTERN.matcher(text).matches())
+        {
+            PartyTracker.clear();
         }
     }
 

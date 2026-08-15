@@ -50,6 +50,14 @@ public final class BedAlarmTracker
     private static final int BED_SCAN_VERTICAL_RADIUS = 16;
     private static final int BED_SCAN_MAX_ATTEMPTS = 20;
 
+    // A player who just respawned can briefly read as teammate-less/enemy-colored for a tick or
+    // two before their team assignment catches up client-side - most noticeable when a teammate
+    // respawns right next to your own bed after a void death, which looks exactly like an intruder
+    // walking in if taken at face value on the very first tick. Requiring this many *consecutive*
+    // ticks of "in radius and not a teammate" before alerting rides out that gap; a real intruder
+    // closing in on foot is still well past this by the time they're worth alerting about.
+    private static final int INTRUDER_CONFIRM_TICKS = 6;
+
     private static BlockPos bedPos;
     // Captured once, on the first scan attempt, and reused for every retry - re-centering each
     // retry on the player's live position instead meant a slow chunk load on the very first
@@ -60,7 +68,13 @@ public final class BedAlarmTracker
     private static int bedScanAttempts;
     private static int tickCounter;
     private static boolean matchActive;
+    // Confirmed intruders only - i.e. already past INTRUDER_CONFIRM_TICKS - used purely to detect
+    // the outside-to-inside transition that triggers a fresh alert.
     private static Set<UUID> playersInside = Set.of();
+    // Consecutive-tick counters for "in radius and not a teammate right now", per UUID; reset the
+    // instant that stops being true for someone (radius exit, or a - possibly late-arriving -
+    // teammate reassignment), so a real streak has to be earned freshly each time.
+    private static final Map<UUID, Integer> candidateStreaks = new HashMap<>();
     // Per-intruder, not global: a genuinely new threat (or the same one back after a real absence)
     // should still alert immediately even if someone else just tripped the alarm a second ago.
     private static final Map<UUID, Integer> lastAlertTick = new HashMap<>();
@@ -96,6 +110,7 @@ public final class BedAlarmTracker
         bedScanAttempts = 0;
         matchActive = false;
         playersInside = Set.of();
+        candidateStreaks.clear();
         lastAlertTick.clear();
     }
 
@@ -196,32 +211,46 @@ public final class BedAlarmTracker
         if (!config.bedAlarmEnabled)
         {
             playersInside = Set.of();
+            candidateStreaks.clear();
             return;
         }
 
         double radiusSq = config.bedAlarmRadius * config.bedAlarmRadius;
         Vec3 bedCenter = Vec3.atCenterOf(bedPos);
+        Set<UUID> currentCandidates = new HashSet<>();
         Set<UUID> currentlyInside = new HashSet<>();
 
         for (AbstractClientPlayer other : level.players())
         {
-            if (other == self || TeamUtil.isTeammate(self, other) || TeamUtil.isLikelyNpc(other.getGameProfile().name()))
+            if (other == self || TeamUtil.isLikelyNpc(other.getGameProfile().name()))
             {
                 continue;
             }
 
-            if (other.position().distanceToSqr(bedCenter) > radiusSq)
+            boolean isCandidate = !TeamUtil.isTeammate(self, other) && other.position().distanceToSqr(bedCenter) <= radiusSq;
+            if (!isCandidate)
             {
                 continue;
             }
 
-            currentlyInside.add(other.getUUID());
-            if (!playersInside.contains(other.getUUID()))
+            UUID uuid = other.getUUID();
+            currentCandidates.add(uuid);
+            int streak = candidateStreaks.merge(uuid, 1, Integer::sum);
+            if (streak < INTRUDER_CONFIRM_TICKS)
+            {
+                continue;
+            }
+
+            currentlyInside.add(uuid);
+            if (!playersInside.contains(uuid))
             {
                 onIntruderEntered(config, other);
             }
         }
 
+        // Anyone who dropped out of candidacy (left the radius, or now correctly reads as a
+        // teammate) loses their progress - a later intrusion has to earn the streak again.
+        candidateStreaks.keySet().retainAll(currentCandidates);
         playersInside = currentlyInside;
     }
 

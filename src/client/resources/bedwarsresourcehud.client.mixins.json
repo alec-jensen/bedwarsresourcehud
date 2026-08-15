@@ -8,6 +8,7 @@
     "ClientLevelAccessor",
     "LivingEntityRendererMixin",
     "MinecraftMixin",
+    "MouseHandlerMixin",
     "SoundEngineVolumeMixin"
   ],
   "injectors": {

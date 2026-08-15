@@ -45,17 +45,20 @@ public final class VersionChecker
     {
         try
         {
-            HttpClient client = HttpClient.newBuilder()
+            HttpResponse<String> response;
+            try (HttpClient client = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(5))
-                    .build();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(RELEASES_API))
-                    .header("Accept", "application/vnd.github+json")
-                    .timeout(Duration.ofSeconds(5))
-                    .GET()
-                    .build();
+                    .build())
+            {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(RELEASES_API))
+                        .header("Accept", "application/vnd.github+json")
+                        .timeout(Duration.ofSeconds(5))
+                        .GET()
+                        .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            }
             if (response.statusCode() != 200)
             {
                 LOGGER.warn("Version check failed: GitHub API returned HTTP {}", response.statusCode());

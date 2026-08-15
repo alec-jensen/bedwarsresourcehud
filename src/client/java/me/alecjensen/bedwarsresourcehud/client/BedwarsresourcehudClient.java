@@ -16,6 +16,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -48,6 +49,13 @@ public class BedwarsresourcehudClient implements ClientModInitializer
     // mixing generator/inventory state from a map that's long over into the current one.
     private static ClientLevel lastLevel;
     private static boolean updateNotified;
+    private static boolean updateToastShown;
+    // Vanilla toasts play their default sound (SoundEvents.UI_TOAST_IN) automatically the first
+    // time a given SystemToastId is shown, so a plain SystemToast.add() covers both the "notify
+    // on launch" ask and the accompanying sound with no extra sound-playing code needed here.
+    // Public so MouseHandlerMixin (a different package) can look this toast up in the manager to
+    // detect clicks on it - vanilla toasts have no click support of their own to hook into.
+    public static final SystemToast.SystemToastId UPDATE_TOAST_ID = new SystemToast.SystemToastId();
 
     @Override
     public void onInitializeClient()
@@ -74,6 +82,21 @@ public class BedwarsresourcehudClient implements ClientModInitializer
 
     private static void onClientTick(Minecraft client)
     {
+        // Deliberately not gated on client.player - this should surface as soon as the check
+        // finishes, which happens well before anyone actually joins a world (right from the title
+        // screen), not just once someone is in-game to receive the chat message below.
+        if (!updateToastShown && VersionChecker.hasChecked())
+        {
+            updateToastShown = true;
+            VersionChecker.UpdateInfo update = VersionChecker.getAvailableUpdate();
+            if (update != null)
+            {
+                SystemToast.add(client.gui.toastManager(), UPDATE_TOAST_ID,
+                        Component.literal("BedwarsResourceHud update available"),
+                        Component.literal("v" + update.latestVersion() + " - see the mod config to download"));
+            }
+        }
+
         if (client.player == null)
         {
             return;
